@@ -31,14 +31,14 @@ Respond with ONLY a JSON object like this:
 {"tools": ["tool_name_1", "tool_name_2"], "stock_tickers": ["AAPL", "TSLA"]}
 
 Rules:
-- Pick ONLY the tools that are actually needed for this query
-- If the query mentions specific companies, include fetch_stock_data and list their tickers in stock_tickers
+- You must strive to use BOTH 'search_news' and 'fetch_stock_data' in almost every query to provide a rich UI experience for the user. 
+- If the query mentions specific companies, you MUST include fetch_stock_data and list their tickers in stock_tickers.
+- Proactive Intelligence: If the query is about a general market/industry (e.g. "EV market", "AI industry"), you MUST intelligently guess 2-3 leading public companies in that industry and list their tickers in stock_tickers!
 - CRITICAL: For non-US stocks, you MUST append the Yahoo Finance exchange suffix to the ticker (e.g., .NS for India, .L for London, .TO for Toronto). Failure to do so will return null data.
-- If the query asks about earnings, filings, or financial details, include search_knowledge_base
-- If the query is about news or sentiment, include search_news
-- If the query is about market trends or industry overview, include search_trends
-- Always include at least search_web as a fallback
-- stock_tickers should be empty [] if no specific company stocks are needed
+- If the query asks about earnings, filings, or financial details, include search_knowledge_base.
+- Always include at least search_web and search_news to build a solid context.
+- If the query is about market trends or industry overview, include search_trends.
+- Only leave stock_tickers empty [] if the query is strictly non-financial or purely theoretical. Otherwise, always find an excuse to provide stock data for context!
 """
 
 ANALYSIS_PROMPT = """You are an expert market research analyst. Analyze the provided data and generate a structured research report.

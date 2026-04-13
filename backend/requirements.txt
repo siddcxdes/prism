@@ -13,5 +13,3 @@ langchain-community
 ddgs
 wikipedia
 yfinance
-chromadb
-sentence-transformers

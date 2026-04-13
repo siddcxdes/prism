@@ -1,17 +1,6 @@
-import chromadb
-from chromadb.utils import embedding_functions
 import os
+import re
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "data", "chroma_db")
-
-ef = embedding_functions.DefaultEmbeddingFunction()
-
-client = chromadb.PersistentClient(path=DB_PATH)
-
-collection = client.get_or_create_collection(
-    name="company_documents",
-    embedding_function=ef,
-)
 
 
 SAMPLE_DOCS = [
@@ -68,39 +57,32 @@ SAMPLE_DOCS = [
 ]
 
 
-def ingest_sample_documents():
-    existing = collection.get()
-    if existing and len(existing["ids"]) > 0:
-        return
-
-    ids = [d["id"] for d in SAMPLE_DOCS]
-    texts = [d["text"] for d in SAMPLE_DOCS]
-    metadatas = [d["metadata"] for d in SAMPLE_DOCS]
-
-    collection.add(
-        ids=ids,
-        documents=texts,
-        metadatas=metadatas,
-    )
-
-
 def query_knowledge_base(query: str, n_results: int = 3) -> str:
-    ingest_sample_documents()
+    query_words = set(re.findall(r'\w+', query.lower()))
+    
+    scored_docs = []
+    for doc in SAMPLE_DOCS:
+        doc_words = set(re.findall(r'\w+', doc["text"].lower()))
+        score = len(query_words.intersection(doc_words))
+        
+        # Boost score if company name matches
+        if doc["metadata"]["company"].lower() in query.lower() or doc["metadata"]["ticker"].lower() in query.lower():
+            score += 10
+            
+        scored_docs.append((score, doc))
+        
+    scored_docs.sort(key=lambda x: x[0], reverse=True)
+    top_docs = [doc for score, doc in scored_docs if score > 0][:n_results]
 
-    results = collection.query(
-        query_texts=[query],
-        n_results=n_results,
-    )
-
-    if not results["documents"] or not results["documents"][0]:
+    if not top_docs:
         return "No relevant documents found in the knowledge base."
 
     output = []
-    for i, doc in enumerate(results["documents"][0]):
-        meta = results["metadatas"][0][i] if results["metadatas"] else {}
+    for doc in top_docs:
+        meta = doc["metadata"]
         source = meta.get("source", "Internal Document")
         company = meta.get("company", "")
         doc_type = meta.get("type", "")
-        output.append(f"[{source} - {company} {doc_type}]\n{doc}\n")
+        output.append(f"[{source} - {company} {doc_type}]\n{doc['text']}\n")
 
     return "\n---\n".join(output)
