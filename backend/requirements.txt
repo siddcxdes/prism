@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pydantic[email]
+passlib[bcrypt]
+bcrypt==4.1.3
+python-jose[cryptography]
+langchain
+langchain-groq
+langchain-community
+ddgs
+wikipedia
+yfinance
+chromadb
+sentence-transformers
