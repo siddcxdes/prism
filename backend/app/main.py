@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, research, organisations, watchlist
@@ -9,9 +10,16 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Market Research API")
 
+origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+if os.getenv("FRONTEND_URL"):
+    origins.append(os.getenv("FRONTEND_URL"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
