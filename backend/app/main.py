@@ -15,7 +15,7 @@ origins = [
     "http://localhost:5173",
 ]
 if os.getenv("FRONTEND_URL"):
-    origins.append(os.getenv("FRONTEND_URL"))
+    origins.append(os.getenv("FRONTEND_URL").rstrip("/"))
 
 app.add_middleware(
     CORSMiddleware,
