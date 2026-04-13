@@ -33,6 +33,7 @@ Respond with ONLY a JSON object like this:
 Rules:
 - Pick ONLY the tools that are actually needed for this query
 - If the query mentions specific companies, include fetch_stock_data and list their tickers in stock_tickers
+- CRITICAL: For non-US stocks, you MUST append the Yahoo Finance exchange suffix to the ticker (e.g., .NS for India, .L for London, .TO for Toronto). Failure to do so will return null data.
 - If the query asks about earnings, filings, or financial details, include search_knowledge_base
 - If the query is about news or sentiment, include search_news
 - If the query is about market trends or industry overview, include search_trends

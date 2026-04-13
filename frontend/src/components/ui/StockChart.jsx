@@ -31,10 +31,20 @@ export default function StockChart({ stockData }) {
     if (stockData.current_price) currentPrice = parseFloat(stockData.current_price);
     if (stockData.price_change_pct != null) priceChange = parseFloat(stockData.price_change_pct).toFixed(2);
   } catch {
-    return null;
+    return (
+      <div className="h-full w-full flex items-center justify-center p-6 border border-dashed border-[#222] rounded-lg">
+        <p className="text-[11px] font-mono text-neutral-500 uppercase tracking-wider text-center">Data Unavailable</p>
+      </div>
+    );
   }
 
-  if (chartData.length === 0) return null;
+  if (chartData.length === 0) {
+    return (
+      <div className="h-full w-full flex items-center justify-center p-6 border border-dashed border-[#222] rounded-lg">
+        <p className="text-[11px] font-mono text-neutral-500 uppercase tracking-wider text-center">Stock history not accessible for this ticker<br/><span className="text-[9px] opacity-60 mt-2 block">(Try using exchange suffixes like .NS)</span></p>
+      </div>
+    );
+  }
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
