@@ -187,3 +187,321 @@ The LLM may return a JSON response like this:
   "tools": ["search_news", "fetch_stock_data"],
   "stock_tickers": ["TSLA", "RIVN"]
 }
+```
+
+This means the LLM has decided that to answer this question, Prism needs to search for recent news and also fetch real stock data for Tesla and Rivian.
+
+The planning phase also has some smart rules built in:
+
+- If the user mentions specific companies, the planner always includes `fetch_stock_data`
+- If the query is about a general industry like "EV market", the planner guesses the top 2-3 public companies in that space and fetches their stock data anyway
+- It always tries to include both `search_news` and `fetch_stock_data` so the final report feels rich and complete
+- For non-US stocks, it appends the correct Yahoo Finance suffix like `.NS` for India or `.L` for London
+
+If the LLM fails to return proper JSON for any reason, Prism falls back to a safe default plan that uses `search_web` and `search_news`.
+
+## Phase 2: Data Collection
+
+Once the plan is ready, Prism starts collecting real data using the tools that were selected in Phase 1.
+
+The available tools are:
+
+1. **search_web** — Searches the web using DuckDuckGo for general information about the topic
+2. **search_news** — Fetches the latest news articles related to the query
+3. **search_trends** — Looks for market trends, growth statistics, and industry data
+4. **search_wikipedia** — Gets background information from Wikipedia about a company or topic
+5. **fetch_stock_data** — Pulls real stock prices, P/E ratio, market cap, EPS, revenue, profit margin, 52-week range, and 30-day price history using Yahoo Finance
+6. **search_knowledge_base** — Searches Prism's internal document store containing SEC filings and earnings reports for major companies
+
+Each tool runs one at a time. For stock data, Prism loops through each ticker from the plan and fetches data individually, up to a maximum of 5 tickers.
+
+All the results from every tool are collected and combined into a single context block. This context block looks something like this:
+
+```
+Tools used: search_news, fetch_stock_data
+Stock tickers queried: TSLA, RIVN
+
+=== SEARCH_NEWS ===
+Title: Tesla Q3 Deliveries Beat Expectations...
+Source: Reuters
+...
+
+=== STOCK_DATA ===
+{"ticker": "TSLA", "current_price": 245.50, "market_cap": 780000000000, ...}
+{"ticker": "RIVN", "current_price": 14.20, "market_cap": 13500000000, ...}
+```
+
+This combined context is what gets sent to the LLM in the next phase.
+
+## Phase 3: Analysis and Report Generation
+
+In this final phase, Prism sends all the collected data to the LLM along with a detailed analysis prompt.
+
+The LLM is now asked to act as an expert market research analyst.
+
+Its job is to take all the raw data from Phase 2 and turn it into a structured research report.
+
+The output is a JSON object that contains:
+
+- **query_type** — Whether this is a "company" or "market" level query
+- **summary** — A comprehensive paragraph summarising the findings
+- **key_insights** — A list of 5 important takeaways
+- **sentiment** — Whether the overall outlook is positive, negative, or neutral
+- **confidence_score** — A number from 0 to 100 showing how confident the report is based on how much data was available
+- **sources** — Real URLs extracted from the search results
+- **trends** — Description of market trends with growth percentages
+- **news_articles** — List of relevant news articles with title, source, URL, and sentiment
+- **company_overview** — Basic info like company name, description, headquarters, and founding year
+- **stock_data** — Real stock data including current price, market cap, P/E ratio, EPS, 52-week range, and historical prices
+- **top_companies** — Leading companies in the space with their tickers and sentiment
+- **financial_comparison** — Metrics compared against industry averages
+
+The confidence score has clear rules:
+
+- 90 to 100 means multiple reliable sources confirmed the data
+- 70 to 89 means good data with some gaps
+- 50 to 69 means limited data was available
+- 30 to 49 means very few sources were found
+- Below 30 means almost no data was available
+
+Once the LLM returns the JSON, the backend parses it and saves it as a new research record in the database. If the JSON parsing fails for any reason, Prism creates a fallback object using just the raw text as the summary.
+
+---
+
+# 5. Authentication and Security
+
+Prism uses JWT-based authentication to protect all its routes.
+
+## How Registration Works
+
+There are two ways to register:
+
+### Admin Registration
+
+An admin creates a new account along with a new organisation.
+
+The flow is:
+1. The admin provides their name, email, password, and organisation name
+2. The backend creates the organisation first and generates a unique invite code
+3. Then it creates the user with the role set to "admin"
+4. A JWT token is returned along with the invite code
+
+The invite code is a randomly generated 16-character hex string. The admin can share this code with their team members.
+
+### Analyst Registration
+
+A regular user joins an existing organisation using an invite code.
+
+The flow is:
+1. The user provides their name, email, password, and the invite code
+2. The backend checks if the invite code matches any organisation
+3. If it does, the user is created with the role set to "analyst"
+4. The user can then log in with their credentials
+
+## How Login Works
+
+1. The user sends their email and password
+2. The backend finds the user by email
+3. It verifies the password using bcrypt
+4. If the password matches, a JWT token is created containing the user ID, organisation ID, and role
+5. This token is sent back to the frontend
+
+## How Tokens Work
+
+The JWT token contains three pieces of information:
+
+- `user_id` — Who the user is
+- `org_id` — Which organisation they belong to
+- `role` — Whether they are an admin or analyst
+
+Every time the frontend makes a request to a protected route, it attaches this token in the `Authorization` header.
+
+The backend has a dependency called `get_current_user` that:
+1. Extracts the token from the header
+2. Decodes it using the secret key
+3. Looks up the user in the database
+4. Returns the user object
+
+There is also a `get_current_admin` dependency that checks if the current user has the admin role. If not, it returns a 403 Forbidden error.
+
+## Password Security
+
+Passwords are never stored in plain text.
+
+Before saving, every password is hashed using bcrypt through the Passlib library. Bcrypt has a built-in limit of 72 bytes, so passwords are truncated to 72 characters before hashing to avoid silent truncation issues.
+
+---
+
+# 6. Frontend Architecture
+
+The frontend is built with React and Vite.
+
+It uses React Router for navigation and Axios for making API calls.
+
+## Pages
+
+The frontend has the following pages:
+
+- **Auth** — The login and registration page. Handles admin registration, analyst registration, and login in one page.
+- **Dashboard** — The main landing page after login. Shows an overview of recent research reports and quick actions.
+- **New Research** — Where users type in their research query. This triggers the full AI pipeline and redirects to the result page.
+- **Research Result** — Displays a full research report with summary, insights, charts, stock data, news articles, and company overview.
+- **History** — Shows all past research reports for the organisation. Supports searching by query text and filtering by tags.
+- **Watchlist** — Lets users save and track companies or stocks they are interested in.
+- **Admin Panel** — Only accessible to admin users. Shows organisation details and team management.
+
+## Key Components
+
+- **ProtectedRoute** — A wrapper component that checks if the user has a valid token. If not, it redirects them to the login page.
+- **Layout** — The main layout component that wraps all protected pages. Includes the sidebar navigation and page structure.
+- **CompanyOverview** — Displays company info like name, description, headquarters, and founding year.
+- **CompanyComparisonChart** — Renders comparison charts between companies using financial metrics.
+- **MarketGrowthChart** — Shows market trends and growth data in chart form.
+- **NewsArticles** — Displays a list of relevant news articles with their source and sentiment.
+
+## Auth Context
+
+The frontend uses React Context to manage authentication state across the entire app.
+
+The `AuthContext` stores:
+- The current user object (decoded from the JWT token)
+- The JWT token itself
+- The organisation details
+- Loading state
+
+It provides functions for:
+- `login` — Sends credentials to the backend and stores the returned token
+- `register` — Registers a new analyst using an invite code
+- `adminRegister` — Creates a new admin account with a new organisation
+- `logout` — Clears the token from local storage and resets all state
+
+## API Service
+
+The frontend uses a centralized Axios instance for all API calls.
+
+This instance:
+- Automatically attaches the JWT token to every request using a request interceptor
+- Handles 401 errors by clearing the token and redirecting to the login page using a response interceptor
+- Skips the redirect for auth-related routes so that login and registration errors are shown properly instead of causing a redirect loop
+
+---
+
+# 7. API Routes
+
+The backend exposes four groups of API routes:
+
+## Auth Routes (`/auth`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/auth/register` | Register a new analyst with an invite code |
+| POST | `/auth/login` | Log in and get a JWT token |
+| POST | `/auth/admin/register` | Create a new admin with a new organisation |
+
+## Research Routes (`/research`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/research/` | Run a new research query through the AI pipeline |
+| GET | `/research/` | Get all research reports for the current organisation |
+| GET | `/research/{report_id}` | Get a specific research report by ID |
+| DELETE | `/research/{report_id}` | Delete a specific research report |
+| PATCH | `/research/{report_id}/tags` | Update the tags on a specific report |
+
+The GET endpoint for listing reports also supports optional query parameters:
+- `search` — Filters reports where the query text contains the search string
+- `tag` — Filters reports that have a specific tag
+
+## Organisation Routes (`/organisations`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/organisations/` | Create a new organisation |
+| GET | `/organisations/me` | Get the current user's organisation details |
+
+## Watchlist Routes (`/watchlist`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/watchlist/` | Get all watchlist items for the current organisation |
+| POST | `/watchlist/` | Add a company to the watchlist |
+| DELETE | `/watchlist/{item_id}` | Remove a company from the watchlist |
+
+All routes except the auth routes require a valid JWT token.
+
+---
+
+# 8. Multi-Tenancy and Data Isolation
+
+Prism supports multiple organisations using the same system.
+
+Every piece of data in Prism is tied to an `org_id`. This means:
+
+- Research reports belong to an organisation, not just a user
+- Watchlist items belong to an organisation
+- When fetching data, the backend always filters by the current user's `org_id`
+
+This ensures that Organisation A can never see Organisation B's data.
+
+For example, when a user fetches their research history, the query looks like:
+
+```python
+db.query(Research).filter(Research.org_id == current_user.org_id)
+```
+
+This filter is applied on every read and write operation across the system.
+
+Users within the same organisation share access to:
+- All research reports created by any team member
+- The same watchlist
+- The same admin panel and invite code
+
+This makes Prism a true multi-tenant application where data is completely isolated between organisations.
+
+---
+
+# 9. Knowledge Base
+
+Prism includes an internal knowledge base that acts as a local document store.
+
+It contains curated data from SEC filings and earnings reports for major public companies including:
+
+- NVIDIA
+- Apple
+- Tesla
+- Microsoft
+- Amazon
+- JPMorgan Chase
+- Goldman Sachs
+
+Each document has metadata attached to it such as the company name, ticker symbol, document type (earnings or overview), and source.
+
+When the AI pipeline decides to use the `search_knowledge_base` tool, it runs a heuristic-based search. This search works by:
+
+1. Breaking the user query into individual words
+2. Breaking each document's text into individual words
+3. Counting how many words overlap between the query and each document
+4. Boosting the score if the company name or ticker appears directly in the query
+5. Returning the top 3 most relevant documents
+
+This approach is lightweight and does not require a vector database or embeddings. It runs entirely in memory and is fast enough for production use on resource-constrained servers.
+
+---
+
+# 10. How Everything Connects
+
+Here is a step-by-step walkthrough of what happens when a user asks a question in Prism:
+
+1. The user types a query on the New Research page
+2. The frontend sends a POST request to `/research/` with the query text
+3. The backend authenticates the user using the JWT token
+4. The `research_service` calls `run_research()` from the AI module
+5. **Phase 1:** The query is sent to the LLM to create a plan
+6. **Phase 2:** Prism collects data using the tools selected in the plan
+7. **Phase 3:** All collected data is sent back to the LLM to generate a structured report
+8. The raw JSON response is parsed and saved to the database
+9. The saved report is returned to the frontend
+10. The frontend redirects the user to the Research Result page
+11. The report is displayed with charts, insights, stock data, news, and a summary
+
+Every part of this flow is protected by authentication, scoped to the user's organisation, and powered by real-time data from external sources combined with AI analysis.
